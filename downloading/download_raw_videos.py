@@ -1,27 +1,18 @@
-#!/usr/bin/env python3
-"""
-Download each unique YouTube video referenced in
-data/mlb-youtube-segmented.json and save it once to raw_videos/<video-id>.mkv
-"""
-
 from __future__ import annotations
 import json
 import subprocess
 from pathlib import Path
 
-# Configuration --------------------------------------------------------------
 JSON_PATH  = Path("data/mlb-youtube-segmented.json")
 RAW_DIR    = Path("raw_videos")
 DOWNLOADER = "yt-dlp"          # make sure yt-dlp is installed
-# ---------------------------------------------------------------------------
+
 
 RAW_DIR.mkdir(parents=True, exist_ok=True)
 
-# --- Load annotation dict ---------------------------------------------------
 with JSON_PATH.open(encoding="utf-8") as f:
     dataset: dict[str, dict] = json.load(f)
 
-# --- Collect unique video-ids ----------------------------------------------
 unique: dict[str, str] = {}
 for meta in dataset.values():
     url = meta.get("url", "")
@@ -34,7 +25,6 @@ for meta in dataset.values():
 
 print(f"{len(unique)} unique YouTube videos listed in JSON.")
 
-# --- Download loop ----------------------------------------------------------
 for vid, url in unique.items():
     target = RAW_DIR / f"{vid}.mp4"
     if target.exists():
@@ -55,4 +45,4 @@ for vid, url in unique.items():
     except subprocess.CalledProcessError as e:
         print(f"[✗] Download failed for {url}: {e}")
 
-print("✅  Finished downloading all raw videos.")
+print("Finished downloading all raw videos.")
