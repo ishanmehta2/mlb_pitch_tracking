@@ -20,10 +20,10 @@ from sklearn.cluster import DBSCAN
 try:
     from ultralytics import YOLO
     YOLO_AVAILABLE = True
-    print("✅ YOLO available for advanced tracking")
+    print("YOLO available for advanced tracking")
 except ImportError:
     YOLO_AVAILABLE = False
-    print("❌ YOLO not available")
+    print("YOLO not available")
 
 class AdvancedBallTracker:
     def __init__(self):
@@ -42,56 +42,47 @@ class AdvancedBallTracker:
             maxLevel=3,
             criteria=(cv2.TERM_CRITERIA_EPS | cv2.TERM_CRITERIA_COUNT, 10, 0.03)
         )
-        
-        # Tracking state
+
         self.previous_frame = None
-        self.ball_trajectory = deque(maxlen=30)  # Store last 30 detections
+        self.ball_trajectory = deque(maxlen=30) 
         self.candidate_tracks = []
-        
-        # Initialize YOLO
+
         if YOLO_AVAILABLE:
             try:
                 self.yolo_model = YOLO("yolov8x.pt")
                 self.yolo_model.classes = [32, 37]  # sports ball (32) + baseball/frisbee (37)
-                self.yolo_model.conf = 0.1  # Lower confidence threshold
+                self.yolo_model.conf = 0.1  
                 self.yolo_model.iou = 0.3
-                print("✅ Advanced YOLO tracking initialized")
+                print("Advanced YOLO tracking initialized")
             except Exception as e:
-                print(f"⚠️  YOLO initialization failed: {e}")
+                print(f"YOLO initialization failed: {e}")
                 self.yolo_model = None
     
     def detect_moving_objects(self, frame):
-        """Detect moving objects using background subtraction"""
-        # Apply background subtraction
+       
         fg_mask = self.background_subtractor.apply(frame)
-        
-        # Clean up the mask
+
         kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
         fg_mask = cv2.morphologyEx(fg_mask, cv2.MORPH_OPEN, kernel)
         fg_mask = cv2.morphologyEx(fg_mask, cv2.MORPH_CLOSE, kernel)
-        
-        # Find contours
+
         contours, _ = cv2.findContours(fg_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
         
         moving_objects = []
         for contour in contours:
             area = cv2.contourArea(contour)
-            
-            # Filter by size (ball should be small but not tiny)
+         
             if 10 < area < 2000:
                 x, y, w, h = cv2.boundingRect(contour)
                 aspect_ratio = w / h
-                
-                # Filter by aspect ratio (ball should be roughly circular)
+              
                 if 0.5 < aspect_ratio < 2.0:
-                    # Calculate center and add confidence based on circularity
                     cx, cy = x + w//2, y + h//2
-                    
-                    # Calculate circularity
+
                     perimeter = cv2.arcLength(contour, True)
                     if perimeter > 0:
                         circularity = 4 * np.pi * area / (perimeter * perimeter)
-                        confidence = min(circularity * 2, 1.0)  # Scale to 0-1
+                        confidence = min(circularity * 2, 1.0)  # 0-1 scale
                         
                         moving_objects.append({
                             'center': (cx, cy),
@@ -104,13 +95,10 @@ class AdvancedBallTracker:
         return moving_objects, fg_mask
     
     def detect_circular_objects(self, frame):
-        """Detect circular objects using Hough circles"""
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-        
-        # Apply Gaussian blur
+      
         blurred = cv2.GaussianBlur(gray, (9, 9), 2)
-        
-        # Detect circles
+
         circles = cv2.HoughCircles(
             blurred,
             cv2.HOUGH_GRADIENT,
@@ -127,8 +115,8 @@ class AdvancedBallTracker:
             circles = np.round(circles[0, :]).astype("int")
             
             for (x, y, r) in circles:
-                # Calculate confidence based on circle properties
-                confidence = min(r / 20.0, 1.0)  # Prefer medium-sized circles
+
+                confidence = min(r / 20.0, 1.0) 
                 
                 circular_objects.append({
                     'center': (x, y),
@@ -141,19 +129,17 @@ class AdvancedBallTracker:
         return circular_objects
     
     def detect_with_yolo(self, frame):
-        """Enhanced YOLO detection with multiple crops"""
         if self.yolo_model is None:
             return []
         
         yolo_detections = []
         h, w = frame.shape[:2]
-        
-        # Try multiple crop regions to catch ball trajectory
+
         crop_regions = [
-            (0, int(h*0.7)),      # Top 70%
-            (0, int(h*0.85)),     # Top 85% 
-            (int(h*0.1), h),      # Bottom 90%
-            (0, h)                # Full frame
+            (0, int(h*0.7)),      
+            (0, int(h*0.85)),   
+            (int(h*0.1), h),    
+            (0, h)            
         ]
         
         for top, bottom in crop_regions:
@@ -168,10 +154,9 @@ class AdvancedBallTracker:
                     confs = results[0].boxes.conf.cpu().numpy()
                     
                     for i, cls_id in enumerate(cls_np):
-                        if int(cls_id) in [32, 37]:  # Ball classes
+                        if int(cls_id) in [32, 37]:  
                             x1, y1, x2, y2 = boxes[i]
-                            
-                            # Adjust coordinates back to full frame
+
                             y1 += top
                             y2 += top
                             
@@ -190,31 +175,28 @@ class AdvancedBallTracker:
         return yolo_detections
     
     def track_with_optical_flow(self, frame):
-        """Track previous detections using optical flow"""
+
         if self.previous_frame is None or len(self.ball_trajectory) == 0:
             return []
         
         gray_prev = cv2.cvtColor(self.previous_frame, cv2.COLOR_BGR2GRAY)
         gray_curr = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-        
-        # Get last few ball positions for tracking
+
         tracked_objects = []
         if len(self.ball_trajectory) > 0:
-            recent_positions = list(self.ball_trajectory)[-3:]  # Last 3 positions
+            recent_positions = list(self.ball_trajectory)[-3:] 
             
             for pos_data in recent_positions:
                 if 'center' in pos_data:
                     old_points = np.array([[pos_data['center']]], dtype=np.float32)
-                    
-                    # Calculate optical flow
+
                     new_points, status, error = cv2.calcOpticalFlowPyrLK(
                         gray_prev, gray_curr, old_points, None, **self.lk_params
                     )
                     
-                    if status[0][0] == 1 and error[0][0] < 50:  # Good tracking
+                    if status[0][0] == 1 and error[0][0] < 50: 
                         cx, cy = new_points[0][0]
-                        
-                        # Predict confidence based on tracking quality
+
                         confidence = max(0.3, 1.0 - error[0][0] / 50.0)
                         
                         tracked_objects.append({
@@ -227,7 +209,7 @@ class AdvancedBallTracker:
         return tracked_objects
     
     def filter_detections_by_physics(self, detections):
-        """Filter detections based on baseball physics"""
+      
         if len(self.ball_trajectory) == 0:
             return detections
         
@@ -236,14 +218,11 @@ class AdvancedBallTracker:
         
         for detection in detections:
             cx, cy = detection['center']
-            
-            # Calculate distance from last known position
+          
             distance = np.sqrt((cx - last_pos[0])**2 + (cy - last_pos[1])**2)
-            
-            # Filter by reasonable movement (adjust based on frame rate)
-            max_movement = 100  # pixels per frame
+          
+            max_movement = 100 
             if distance < max_movement:
-                # Boost confidence for reasonable movements
                 physics_confidence = max(0.1, 1.0 - distance / max_movement)
                 detection['confidence'] *= physics_confidence
                 filtered.append(detection)
@@ -251,31 +230,25 @@ class AdvancedBallTracker:
         return filtered
     
     def combine_and_rank_detections(self, all_detections):
-        """Combine detections from all methods and rank by confidence"""
         if not all_detections:
             return []
-        
-        # Cluster nearby detections
+
         centers = np.array([det['center'] for det in all_detections])
         
         if len(centers) > 1:
-            # Use DBSCAN to cluster nearby detections
             clustering = DBSCAN(eps=30, min_samples=1).fit(centers)
             labels = clustering.labels_
-            
-            # Merge clustered detections
+
             merged_detections = []
             for label in set(labels):
                 cluster_mask = labels == label
                 cluster_detections = [det for i, det in enumerate(all_detections) if cluster_mask[i]]
-                
-                # Merge by weighted average
+
                 total_confidence = sum(det['confidence'] for det in cluster_detections)
                 if total_confidence > 0:
                     weighted_x = sum(det['center'][0] * det['confidence'] for det in cluster_detections) / total_confidence
                     weighted_y = sum(det['center'][1] * det['confidence'] for det in cluster_detections) / total_confidence
-                    
-                    # Combine methods
+
                     methods = [det['method'] for det in cluster_detections]
                     combined_method = '+'.join(set(methods))
                     
@@ -287,51 +260,40 @@ class AdvancedBallTracker:
                     })
             
             all_detections = merged_detections
-        
-        # Sort by confidence
+
         all_detections.sort(key=lambda x: x['confidence'], reverse=True)
         
         return all_detections
     
     def track_frame(self, frame):
-        """Main tracking function - combines all methods"""
         all_detections = []
-        
-        # Method 1: YOLO detection
+
         yolo_detections = self.detect_with_yolo(frame)
         all_detections.extend(yolo_detections)
-        
-        # Method 2: Motion detection
+
         motion_detections, fg_mask = self.detect_moving_objects(frame)
         all_detections.extend(motion_detections)
-        
-        # Method 3: Circular object detection
+
         circular_detections = self.detect_circular_objects(frame)
         all_detections.extend(circular_detections)
-        
-        # Method 4: Optical flow tracking
+
         flow_detections = self.track_with_optical_flow(frame)
         all_detections.extend(flow_detections)
-        
-        # Filter by physics constraints
+
         if len(self.ball_trajectory) > 0:
             all_detections = self.filter_detections_by_physics(all_detections)
-        
-        # Combine and rank detections
+
         final_detections = self.combine_and_rank_detections(all_detections)
-        
-        # Store best detection in trajectory
+ 
         if final_detections:
             best_detection = final_detections[0]
             self.ball_trajectory.append(best_detection)
-        
-        # Update previous frame
+
         self.previous_frame = frame.copy()
         
         return final_detections, fg_mask if 'fg_mask' in locals() else None
 
 def advanced_ball_tracking_diagnostic(video_path, output_dir="advanced_tracking_proof"):
-    """Advanced diagnostic with multiple tracking methods"""
     
     # Create output directory
     Path(output_dir).mkdir(parents=True, exist_ok=True)
