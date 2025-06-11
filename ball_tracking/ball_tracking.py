@@ -1,9 +1,5 @@
 #!/usr/bin/env python
 # ball_tracking.py
-# -------------------------------------------------------------
-#  Ball tracking and trajectory feature extraction for MLB pitches
-# -------------------------------------------------------------
-
 import cv2
 import numpy as np
 import torch
