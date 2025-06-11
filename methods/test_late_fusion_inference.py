@@ -1,13 +1,5 @@
 #!/usr/bin/env python
 # test_late_fusion_inference.py
-# -------------------------------------------------------------
-#   Test the trained Late-Fusion CNN on random samples from no_contact_pitches
-#   • Loads the saved model from best_model.pth
-#   • Randomly samples videos from a specified folder
-#   • Makes predictions and shows confidence scores
-#   • Categorical output: {fastball, breaking, offspeed}
-#   • Calculates weighted average F1, precision, and recall
-# -------------------------------------------------------------
 
 import argparse
 import json
@@ -23,9 +15,6 @@ from typing import Tuple, Optional
 import matplotlib.pyplot as plt
 from sklearn.metrics import classification_report, confusion_matrix
 
-###############################################################################
-# Globals & Mapping                                                           #
-###############################################################################
 CATEGORIES = ["fastball", "breaking", "offspeed"]
 PITCH_MAP = {
     "fastball": "fastball",  "sinker": "fastball",  "cutter": "fastball",
@@ -33,9 +22,6 @@ PITCH_MAP = {
     "changeup": "offspeed",  "knucklecurve": "offspeed",
 }
 
-###############################################################################
-# Model Definition (same as training)                                         #
-###############################################################################
 class LateFusionNet(nn.Module):
     def __init__(self, freeze_backbones=False):
         super().__init__()
@@ -54,11 +40,7 @@ class LateFusionNet(nn.Module):
         z2 = self.back2d(img)
         return self.classifier(torch.cat([z3,z2],1))
 
-###############################################################################
-# Video Processing Functions                                                  #
-###############################################################################
 class VideoProcessor:
-    """Handles video loading and preprocessing for inference."""
     
     def __init__(self, 
                  num_frames: int = 16,
@@ -71,16 +53,14 @@ class VideoProcessor:
         self.center_only = use_center_frame_for_2d
         
         self.resize = T.Resize(size)
-        self.center_crop = T.CenterCrop(size)  # Use center crop for inference
-        
-        # Normalization constants
+        self.center_crop = T.CenterCrop(size) 
+    
         self.mean3d = torch.tensor([0.485,0.456,0.406])[:,None,None,None]
         self.std3d  = torch.tensor([0.229,0.224,0.225])[:,None,None,None]
         self.mean2d = torch.tensor([0.485,0.456,0.406])[:,None,None]
         self.std2d  = torch.tensor([0.229,0.224,0.225])[:,None,None]
     
     def _temporal_sample(self, frames: torch.Tensor, random_sample: bool = False) -> torch.Tensor:
-        """Sample frames from video."""
         total = frames.shape[0]
         need = self.num_frames * self.frame_stride
         
@@ -88,7 +68,6 @@ class VideoProcessor:
             raise ValueError("Zero-length video")
         
         if total < need:
-            # Repeat frames if video is too short
             reps = np.ceil(need / total).astype(int)
             frames = torch.cat([frames] * reps, dim=0)
             total = frames.shape[0]
@@ -96,42 +75,29 @@ class VideoProcessor:
         if random_sample:
             start = random.randint(0, total - need)
         else:
-            # Center sampling for inference
             start = (total - need) // 2
         
         return frames[start:start+need:self.frame_stride]
     
     def process_video(self, video_path: Path) -> Optional[Tuple[torch.Tensor, torch.Tensor]]:
-        """Load and process a video file."""
         try:
-            # Load video
             frames, _, _ = read_video(str(video_path), pts_unit="sec")
             if frames.shape[0] == 0:
                 print(f"Warning: Empty video file: {video_path}")
                 return None
-            
-            # Convert to float and normalize to [0,1]
+                
             frames = frames.float() / 255.0
-            
-            # Sample frames
             clip = self._temporal_sample(frames, random_sample=False)  # T,H,W,C
             clip = clip.permute(3,0,1,2)  # C,T,H,W
-            
-            # Resize and crop
+         
             clip = self.center_crop(self.resize(clip))
-            
-            # Normalize
             clip = (clip - self.mean3d) / self.std3d
-            
-            # Get 2D frame (center or average)
             if self.center_only:
                 img = clip[:, clip.shape[1]//2]
             else:
                 img = clip.mean(dim=1)
             
             img = (img - self.mean2d) / self.std2d
-            
-            # Add batch dimension
             clip = clip.unsqueeze(0)  # 1,C,T,H,W
             img = img.unsqueeze(0)    # 1,C,H,W
             
@@ -141,14 +107,9 @@ class VideoProcessor:
             print(f"Error processing video {video_path}: {e}")
             return None
 
-###############################################################################
-# Inference Functions                                                         #
-###############################################################################
 def load_model(model_path: str, device: str = "cuda") -> LateFusionNet:
-    """Load the trained model."""
     model = LateFusionNet(freeze_backbones=False)
-    
-    # Load checkpoint
+
     checkpoint = torch.load(model_path, map_location=device)
     if 'model' in checkpoint:
         model.load_state_dict(checkpoint['model'])
@@ -169,8 +130,7 @@ def predict_single_video(model: LateFusionNet,
                         processor: VideoProcessor,
                         metadata: dict = None,
                         device: str = "cuda") -> dict:
-    """Make prediction on a single video."""
-    # Process video
+
     result = processor.process_video(video_path)
     if result is None:
         return None
@@ -178,15 +138,13 @@ def predict_single_video(model: LateFusionNet,
     clip, img = result
     clip = clip.to(device)
     img = img.to(device)
-    
-    # Get prediction
+
     with torch.no_grad():
         logits = model(clip, img)
         probs = torch.softmax(logits, dim=1)
         pred_idx = torch.argmax(probs, dim=1).item()
         confidence = probs[0, pred_idx].item()
-    
-    # Get true label if metadata available
+
     true_label = None
     if metadata and video_path.stem in metadata:
         pitch_type = metadata[video_path.stem].get('type')
@@ -209,14 +167,11 @@ def test_random_samples(model: LateFusionNet,
                        num_samples: int = 10,
                        device: str = "cuda") -> list:
     """Test on random samples from a directory."""
-    # Get all video files
     video_files = list(video_dir.glob("*.mp4"))
     
     if not video_files:
         print(f"No .mp4 files found in {video_dir}")
         return []
-    
-    # Sample random videos
     num_samples = min(num_samples, len(video_files))
     sampled_videos = random.sample(video_files, num_samples)
     
@@ -231,8 +186,7 @@ def test_random_samples(model: LateFusionNet,
         
         if result:
             results.append(result)
-            
-            # Print results
+
             print(f"  Prediction: {result['prediction']:<10} (confidence: {result['confidence']:.3f})")
             print(f"  Probabilities:")
             for cat, prob in result['probabilities'].items():
@@ -245,37 +199,31 @@ def test_random_samples(model: LateFusionNet,
     return results
 
 def calculate_metrics(y_true, y_pred, labels):
-    """Calculate precision, recall, F1 scores including weighted averages."""
-    # Get classification report as dictionary
     report = classification_report(y_true, y_pred, labels=labels, 
                                   target_names=CATEGORIES, 
                                   output_dict=True, zero_division=0)
-    
-    # Calculate support for each class
+
     from collections import Counter
     true_counts = Counter(y_true)
-    
-    # Extract metrics
+
     metrics = {
         'per_class': {},
         'macro_avg': report['macro avg'],
         'weighted_avg': report['weighted avg']
     }
-    
-    # Per-class metrics
+
     for cat in CATEGORIES:
         if cat in report:
             metrics['per_class'][cat] = {
                 'precision': report[cat]['precision'],
                 'recall': report[cat]['recall'],
                 'f1-score': report[cat]['f1-score'],
-                'support': true_counts.get(cat, 0)  # Get actual count from y_true
+                'support': true_counts.get(cat, 0)  
             }
     
     return metrics, report
 
 def analyze_results(results: list):
-    """Analyze and summarize prediction results with weighted metrics."""
     if not results:
         print("\nNo results to analyze.")
         return
@@ -283,8 +231,7 @@ def analyze_results(results: list):
     print("\n" + "="*80)
     print("SUMMARY")
     print("="*80)
-    
-    # Count predictions
+
     pred_counts = {cat: 0 for cat in CATEGORIES}
     conf_by_cat = {cat: [] for cat in CATEGORIES}
     
@@ -292,8 +239,7 @@ def analyze_results(results: list):
         pred = result['prediction']
         pred_counts[pred] += 1
         conf_by_cat[pred].append(result['confidence'])
-    
-    # Print prediction distribution
+ 
     print("\nPrediction Distribution:")
     total = len(results)
     for cat in CATEGORIES:
@@ -301,23 +247,17 @@ def analyze_results(results: list):
         pct = 100 * count / total
         avg_conf = np.mean(conf_by_cat[cat]) if conf_by_cat[cat] else 0
         print(f"  {cat:<10}: {count:3d} ({pct:5.1f}%) - avg confidence: {avg_conf:.3f}")
-    
-    # If we have true labels, calculate detailed metrics
+
     results_with_labels = [r for r in results if r['true_label'] is not None]
     if results_with_labels:
-        # Extract true labels and predictions
         y_true = [r['true_label'] for r in results_with_labels]
         y_pred = [r['prediction'] for r in results_with_labels]
-        
-        # Calculate metrics
         metrics, report = calculate_metrics(y_true, y_pred, CATEGORIES)
-        
-        # Print overall accuracy
+
         correct = sum(1 for r in results_with_labels if r['correct'])
         accuracy = 100 * correct / len(results_with_labels)
         print(f"\nOverall Accuracy: {accuracy:.1f}% ({correct}/{len(results_with_labels)})")
-        
-        # Print per-class metrics
+
         print("\n" + "="*80)
         print("PER-CLASS METRICS")
         print("="*80)
@@ -331,8 +271,7 @@ def analyze_results(results: list):
                       f"{m['f1-score']:10.4f} {m['support']:10d}")
         
         print("-"*55)
-        
-        # Print macro and weighted averages
+
         print(f"{'Macro avg':<12} {metrics['macro_avg']['precision']:10.4f} "
               f"{metrics['macro_avg']['recall']:10.4f} "
               f"{metrics['macro_avg']['f1-score']:10.4f} "
@@ -342,16 +281,14 @@ def analyze_results(results: list):
               f"{metrics['weighted_avg']['recall']:10.4f} "
               f"{metrics['weighted_avg']['f1-score']:10.4f} "
               f"{len(results_with_labels):10d}")
-        
-        # Print key weighted metrics summary
+
         print("\n" + "="*80)
         print("WEIGHTED AVERAGE METRICS SUMMARY")
         print("="*80)
         print(f"Weighted Precision: {metrics['weighted_avg']['precision']:.4f}")
         print(f"Weighted Recall:    {metrics['weighted_avg']['recall']:.4f}")
         print(f"Weighted F1-Score:  {metrics['weighted_avg']['f1-score']:.4f}")
-        
-        # Confusion matrix
+
         print("\n" + "="*80)
         print("CONFUSION MATRIX")
         print("="*80)
@@ -369,7 +306,6 @@ def analyze_results(results: list):
                 print(f"{cm[i, j]:>10}", end="")
             print()
         
-        # Per-class accuracy breakdown
         print("\n" + "="*80)
         print("PER-CLASS DETAILED BREAKDOWN")
         print("="*80)
@@ -386,9 +322,6 @@ def analyze_results(results: list):
                     print(f"    Precision: {m['precision']:5.1%} | Recall: {m['recall']:5.1%} | "
                           f"F1: {m['f1-score']:5.1%}")
 
-###############################################################################
-# Main                                                                        #
-###############################################################################
 def main():
     parser = argparse.ArgumentParser(description="Test Late-Fusion model on no-contact pitches")
     parser.add_argument("--model_path", default="best_model.pth", help="Path to saved model")
@@ -398,36 +331,29 @@ def main():
     parser.add_argument("--seed", type=int, default=42, help="Random seed")
     parser.add_argument("--device", default="cuda", help="Device (cuda/cpu)")
     args = parser.parse_args()
-    
-    # Set random seed
+
     random.seed(args.seed)
     torch.manual_seed(args.seed)
-    
-    # Check device
+
     device = args.device
     if device == "cuda" and not torch.cuda.is_available():
         print("CUDA not available, using CPU")
         device = "cpu"
-    
-    # Load metadata if provided
+
     metadata = None
     if args.metadata_json:
         with open(args.metadata_json, 'r') as f:
             metadata = json.load(f)
         print(f"Loaded metadata from {args.metadata_json}")
-    
-    # Initialize video processor
+
     processor = VideoProcessor()
-    
-    # Load model
+
     model = load_model(args.model_path, device)
-    
-    # Test on random samples
+
     video_dir = Path(args.video_dir)
     results = test_random_samples(model, video_dir, processor, metadata, 
                                  args.num_samples, device)
-    
-    # Analyze results
+
     analyze_results(results)
 
 if __name__ == "__main__":
