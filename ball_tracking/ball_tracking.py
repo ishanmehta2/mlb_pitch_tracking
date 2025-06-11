@@ -12,7 +12,6 @@ from typing import Optional, Dict, List, Tuple
 import warnings
 
 class BallTracker:
-    """Ball tracking class for extracting trajectory features from pitch videos"""
     
     def __init__(self, 
                  min_area: int = 20, 
@@ -27,7 +26,6 @@ class BallTracker:
         self.bg_threshold = bg_threshold
     
     def track_ball_in_video(self, video_path: str) -> Optional[np.ndarray]:
-        """Track ball positions throughout the video"""
         cap = cv2.VideoCapture(video_path)
         
         if not cap.isOpened():
@@ -64,7 +62,6 @@ class BallTracker:
         return np.array(ball_positions) if ball_positions else None
     
     def _find_ball_in_frame(self, fg_mask: np.ndarray) -> Optional[Tuple[int, int]]:
-        """Find the most likely ball position in a single frame"""
         contours, _ = cv2.findContours(fg_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
         
         best_ball = None
@@ -98,8 +95,7 @@ class BallTracker:
         return None
 
 class TrajectoryFeatureExtractor:
-    """Extract trajectory-based features from ball positions"""
-    
+
     def __init__(self):
         self.feature_names = [
             'vertical_drop', 'horizontal_movement', 'avg_velocity', 'max_velocity',
@@ -109,7 +105,6 @@ class TrajectoryFeatureExtractor:
         ]
     
     def extract_features(self, ball_positions: np.ndarray) -> Optional[Dict[str, float]]:
-        """Extract comprehensive trajectory features"""
         if ball_positions is None or len(ball_positions) < 5:
             return None
             
@@ -157,7 +152,6 @@ class TrajectoryFeatureExtractor:
             return None
     
     def _calculate_velocities(self, x: np.ndarray, y: np.ndarray, t: np.ndarray) -> np.ndarray:
-        """Calculate frame-to-frame velocities"""
         if len(x) <= 1:
             return np.array([0])
         
@@ -169,7 +163,6 @@ class TrajectoryFeatureExtractor:
         return np.sqrt(dx**2 + dy**2) / dt
     
     def _calculate_accelerations(self, velocities: np.ndarray, t: np.ndarray) -> np.ndarray:
-        """Calculate accelerations from velocities"""
         if len(velocities) <= 1:
             return np.array([0])
         
@@ -180,7 +173,6 @@ class TrajectoryFeatureExtractor:
         return dv / dt
     
     def _calculate_curvature(self, x: np.ndarray, y: np.ndarray) -> float:
-        """Calculate trajectory curvature using polynomial fit"""
         try:
             if len(x) < 3:
                 return 0.0
@@ -191,18 +183,15 @@ class TrajectoryFeatureExtractor:
             return 0.0
     
     def _calculate_curve_ratio(self, x: np.ndarray, y: np.ndarray) -> float:
-        """Calculate ratio of actual path length to straight-line distance"""
         total_distance = self._calculate_total_distance(x, y)
         straight_line_distance = np.sqrt((x[-1]-x[0])**2 + (y[-1]-y[0])**2)
         
         return total_distance / straight_line_distance if straight_line_distance > 0 else 1.0
     
     def _calculate_total_distance(self, x: np.ndarray, y: np.ndarray) -> float:
-        """Calculate total path length"""
         return np.sum(np.sqrt(np.diff(x)**2 + np.diff(y)**2))
     
     def _calculate_trajectory_angle(self, x: np.ndarray, y: np.ndarray) -> float:
-        """Calculate overall trajectory angle in degrees"""
         if len(x) < 2:
             return 0.0
         
@@ -212,7 +201,6 @@ class TrajectoryFeatureExtractor:
         return np.degrees(np.arctan2(delta_y, delta_x))
     
     def _calculate_smoothness(self, x: np.ndarray, y: np.ndarray) -> float:
-        """Calculate trajectory smoothness (inverse of jerk)"""
         if len(x) < 4:
             return 1.0
 
@@ -227,7 +215,6 @@ class TrajectoryFeatureExtractor:
         return 1.0 / (1.0 + jerk_magnitude)
 
 class TrajectoryNet(nn.Module):
-    """Neural network for processing trajectory features"""
     
     def __init__(self, input_dim: int = 12, hidden_dim: int = 64, output_dim: int = 32):
         super().__init__()
@@ -258,7 +245,6 @@ class TrajectoryNet(nn.Module):
         return self.net(x)
 
 def extract_trajectory_features_from_video(video_path: str) -> Optional[torch.Tensor]:
-    """Main function to extract trajectory features from a video file"""
     tracker = BallTracker()
     extractor = TrajectoryFeatureExtractor()
 
@@ -279,8 +265,6 @@ def extract_trajectory_features_from_video(video_path: str) -> Optional[torch.Te
     return torch.tensor(feature_vector, dtype=torch.float32)
 
 def normalize_trajectory_features(features: torch.Tensor) -> torch.Tensor:
-    """Normalize trajectory features for better training stability"""
-
     normalization_factors = torch.tensor([
         100.0,  # vertical_drop
         100.0,  # horizontal_movement  
